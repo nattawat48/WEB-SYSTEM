@@ -1,0 +1,232 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use App\Models\Actor;
+
+class Movie extends Model
+{
+    public $timestamps = false;
+
+    protected $fillable = [
+        'title',
+        'release_year',
+        'actor_id',
+    ];
+
+    public function actor()
+    {
+        return $this->belongsTo(Actor::class);
+    }
+}
+<?php
+ 
+namespace App\Models;
+ 
+use Illuminate\Database\Eloquent\Model;
+ 
+class Product extends Model
+{
+    protected $table = 'product';
+    protected $primaryKey = 'id';
+    protected $fillable = [
+        'name',
+        'detail',
+    ];
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Schedule extends Model
+{
+    protected $fillable = [
+        'teacher_id',
+        'classroom',
+        'subject',
+        'day_of_week',
+        'period',
+        'time_slot',
+    ];
+
+    public function teacher()
+    {
+        return $this->belongsTo(Teacher::class);
+    }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Student extends Model
+{
+    protected $fillable = ['code', 'name', 'classroom', 'phone', 'status'];
+
+    public function grades()
+    {
+        return $this->hasMany(Grade::class);
+    }
+
+    public function attendances()
+    {
+        return $this->hasMany(Attendance::class);
+    }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Teacher extends Model
+{
+    // ต้องมี $fillable อนุญาตให้บันทึกฟิลด์เหล่านี้
+    protected $fillable = [
+        'name',
+        'subject',
+        'classroom_advisor',
+        'phone',
+        'image',
+    ];
+}
+<?php
+
+namespace App\Models;
+
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+
+#[Fillable(['name', 'email', 'password'])]
+#[Hidden(['password', 'remember_token'])]
+class User extends Authenticatable
+{
+    /** @use HasFactory<UserFactory> */
+    use HasFactory, Notifiable;
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+        ];
+    }
+}
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+
+class Actor extends Model
+{
+    protected $table = 'actor';
+    protected $primaryKey = 'id';
+    protected $fillable = [
+        'name',
+        'gender',
+        'address',
+        'cost',
+        'image',
+        'belong',
+    ];
+    public function movies(): HasMany
+    {
+        return $this->hasMany(Movie::class);
+    }
+}
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Announcement extends Model
+{
+    protected $fillable = [
+        'title',
+        'content',
+        'category',
+        'event_date',
+        'is_pinned',
+        'author_name',
+    ];
+
+    protected $casts = [
+        'is_pinned' => 'boolean',
+        'event_date' => 'date',
+    ];
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Attendance extends Model
+{
+    protected $fillable = [
+        'student_id',
+        'date',
+        'status',
+        'remark',
+    ];
+
+    public function student()
+    {
+        return $this->belongsTo(Student::class);
+    }
+}
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Demo extends Model
+{
+    protected $table = 'demo';
+    protected $primaryKey = 'id';
+    protected $fillable = [
+    'name',
+    'detail',
+    ];
+}
+
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class Grade extends Model
+{
+    protected $fillable = [
+        'student_id',
+        'subject',
+        'score',
+        'grade',
+    ];
+
+    public function student()
+    {
+        return $this->belongsTo(Student::class);
+    }
+}
