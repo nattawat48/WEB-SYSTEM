@@ -1,0 +1,192 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('schedules', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('teacher_id')->constrained('teachers')->onDelete('cascade');
+            $table->string('classroom');    // ชั้นปี เช่น ม.1, ม.2, ..., ม.6
+            $table->string('subject');      // รายวิชาที่สอน
+            $table->string('day_of_week');  // วัน เช่น จันทร์, อังคาร, พุธ, พฤหัสบดี, ศุกร์
+            $table->integer('period');      // คาบที่ (1-6)
+            $table->string('time_slot');    // ช่วงเวลา เช่น 08:30 - 09:30
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('schedules');
+    }
+};
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+{
+    Schema::create('announcements', function (Blueprint $table) {
+        $table->id();
+        $table->string('title');                         // หัวข้อประกาศ
+        $table->text('content');                         // เนื้อหาข่าว / รายละเอียด
+        $table->string('category');                      // หมวดหมู่: กิจกรรม, ปฏิทินวิชาการ, วันหยุด, ข่าวทั่วไป
+        $table->date('event_date')->nullable();          // วันที่จัดกิจกรรมหรือวันหยุด
+        $table->boolean('is_pinned')->default(false);    // ปักหมุดประกาศสำคัญไว้บนสุด
+        $table->string('author_name')->default('ฝ่ายประชาสัมพันธ์'); // ผู้ลงประกาศ
+        $table->timestamps();
+    });
+}
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('announcements');
+    }
+};
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('students', function (Blueprint $table) {
+            $table->id();
+            $table->string('code')->unique(); // รหัสนักเรียน เช่น STD-1001
+            $table->string('name'); // ชื่อ - นามสกุล
+            $table->string('classroom'); // ห้องเรียน เช่น ม.4/1
+            $table->string('phone')->nullable(); // เบอร์ติดต่อ (เว้นว่างได้)
+            $table->string('status')->default('ปกติ'); // สถานะ เช่น ปกติ, พักการเรียน
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('students');
+    }
+};
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('grades', function (Blueprint $table) {
+            $table->id();
+            // เชื่อมโยงกับตาราง students หากลบนักเรียน ข้อมูลเกรดจะถูกลบด้วย
+            $table->foreignId('student_id')->constrained('students')->onDelete('cascade');
+            $table->string('subject'); // ชื่อวิชา
+            $table->decimal('score', 5, 2); // คะแนน เช่น 88.50
+            $table->string('grade', 5); // เกรด เช่น 4.0, 3.5
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('grades');
+    }
+};
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('attendances', function (Blueprint $table) {
+            $table->id();
+            // เชื่อมโยงกับตาราง students
+            $table->foreignId('student_id')->constrained('students')->onDelete('cascade');
+            $table->date('date'); // วันที่เช็กชื่อ
+            $table->enum('status', ['มาเรียน', 'สาย', 'ขาด', 'ลา'])->default('มาเรียน');
+            $table->string('remark')->nullable(); // หมายเหตุ (เว้นว่างได้)
+            $table->timestamps();
+
+            // ป้องกันการเช็กชื่อซ้ำคนเดิมในวันเดียวกัน
+            $table->unique(['student_id', 'date']);
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('attendances');
+    }
+};
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('teachers', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');                      // ชื่อ - นามสกุล คุณครู
+            $table->string('subject');                   // กลุ่มสาระ / วิชาที่สอน
+            $table->string('classroom_advisor');         // ครูประจำชั้น (เช่น ม.1, ม.2, ..., ม.6 หรือ ไม่ได้ประจำชั้น)
+            $table->string('phone')->nullable();         // เบอร์โทรศัพท์ (ใส่หรือไม่ใส่ก็ได้)
+            $table->string('image')->nullable();         // พาธไฟล์รูปถ่ายคุณครู
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('teachers');
+    }
+};
