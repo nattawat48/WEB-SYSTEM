@@ -1,0 +1,1084 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\Movie;
+use App\Models\Actor;
+
+class MovieController extends Controller
+{
+    // แสดงข้อมูลภาพยนตร์
+    public function index()
+    {
+        $movies = Movie::with('actor')->get();
+
+        return view('movies.index', compact('movies'));
+    }
+
+    // หน้าเพิ่มข้อมูล
+    public function create()
+    {
+        $actors = Actor::all();
+
+        return view('movies.create', compact('actors'));
+    }
+
+    // บันทึกข้อมูลใหม่
+    public function store(Request $request)
+    {
+        Movie::create([
+            'title' => $request->title,
+            'release_year' => $request->release_year,
+            'actor_id' => $request->actor_id ?: null,
+        ]);
+
+        return redirect()->route('movie.index');
+    }
+
+    // หน้าแก้ไขข้อมูล
+    public function edit(Movie $movie)
+    {
+        $actors = Actor::all();
+
+        return view('movies.edit', compact('movie', 'actors'));
+    }
+
+    // บันทึกการแก้ไข
+    public function update(Request $request, Movie $movie)
+    {
+        $movie->update([
+            'title' => $request->title,
+            'release_year' => $request->release_year,
+            'actor_id' => $request->actor_id ?: null,
+        ]);
+
+        return redirect()->route('movie.index');
+    }
+
+    // ลบข้อมูล
+    public function destroy(Movie $movie)
+    {
+        $movie->delete();
+
+        return redirect()->route('movie.index');
+    }
+}
+<?php
+ 
+namespace App\Http\Controllers;
+ 
+use App\Models\Product;
+ 
+class ProductController extends Controller
+{
+    public function index()
+    {
+        $products = Product::all();
+       
+        // คำนวณผลรวมของคอลัมน์ price
+        $sumPrice = Product::sum('price');
+        // หรือใช้ $products->sum('price'); ก็ได้เช่นกันครับ
+ 
+        return view('product.index', compact('products', 'sumPrice'));
+    }
+}
+ 
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Student;
+use App\Models\Attendance;
+use App\Models\Grade;
+use Illuminate\Http\Request;
+use Carbon\Carbon;
+
+class ReportController extends Controller
+{
+    public function index(Request $request)
+    {
+        $classrooms = Student::select('classroom')->distinct()->orderBy('classroom')->pluck('classroom');
+        $selectedClassroom = $request->input('classroom', $classrooms->first() ?? 'ม.1');
+        $selectedMonth = $request->input('month', now()->format('Y-m'));
+
+        $students = Student::with('grades')
+            ->where('classroom', $selectedClassroom)
+            ->orderBy('code')
+            ->get();
+
+        return view('dashboard.reports', compact('classrooms', 'selectedClassroom', 'selectedMonth', 'students'));
+    }
+
+    // 1. แบบรายงานผลการพัฒนาคุณภาพผู้เรียน (ปพ.5 - รายห้อง)
+    public function exportPp5(Request $request)
+    {
+        $classroom = $request->input('classroom');
+        $students = Student::with('grades')
+            ->where('classroom', $classroom)
+            ->orderBy('code')
+            ->get();
+
+        return view('dashboard.reports_pp5', compact('classroom', 'students'));
+    }
+
+    // 2. แบบรายงานผลการเรียนรายบุคคล (ปพ.6 - รายบุคคล)
+    public function exportPp6($studentId)
+    {
+        $student = Student::with('grades')->findOrFail($studentId);
+        $gpa = $student->grades->count() > 0 ? number_format($student->grades->avg('grade'), 2) : '0.00';
+
+        return view('dashboard.reports_pp6', compact('student', 'gpa'));
+    }
+
+    // 3. สรุปสถิติการมาเรียนประจำเดือน (ขาด ลา มา สาย)
+    public function exportMonthlyAttendance(Request $request)
+    {
+        $classroom = $request->input('classroom');
+        $month = $request->input('month', now()->format('Y-m')); // Format: YYYY-MM
+        $monthDate = Carbon::createFromFormat('Y-m', $month);
+
+        $students = Student::where('classroom', $classroom)->orderBy('code')->get();
+
+        // คำนวณสถิติของนักเรียนแต่ละคนในเดือนนั้น
+        $attendanceSummary = [];
+        foreach ($students as $student) {
+            $records = Attendance::where('student_id', $student->id)
+                ->whereYear('date', $monthDate->year)
+                ->whereMonth('date', $monthDate->month)
+                ->get();
+
+            $attendanceSummary[$student->id] = [
+                'student' => $student,
+                'present' => $records->where('status', 'มาเรียน')->count(),
+                'late'    => $records->where('status', 'สาย')->count(),
+                'absent'  => $records->whereIn('status', ['ขาด', 'ขาดเรียน'])->count(),
+                'leave'   => $records->where('status', 'ลา')->count(),
+                'total_days' => $records->count(),
+            ];
+        }
+
+        return view('dashboard.reports_monthly_attendance', compact('classroom', 'monthDate', 'attendanceSummary'));
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Teacher;
+use App\Models\Schedule;
+use Illuminate\Http\Request;
+
+class ScheduleController extends Controller
+{
+    public function index(Request $request)
+    {
+        $viewType = $request->input('type', 'teacher'); // ดูตาม 'teacher' หรือ 'classroom'
+        $teachers = Teacher::all();
+        $classrooms = ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
+        $days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์'];
+
+        $selectedTeacherId = $request->input('teacher_id', $teachers->first()?->id);
+        $selectedClassroom = $request->input('classroom', 'ม.1');
+
+        $query = Schedule::with('teacher');
+
+        if ($viewType === 'classroom') {
+            $query->where('classroom', $selectedClassroom);
+        } else {
+            if ($selectedTeacherId) {
+                $query->where('teacher_id', $selectedTeacherId);
+            }
+        }
+
+        $schedules = $query->get();
+
+        // จัดโครงสร้างข้อมูลลง Matrix [วัน][คาบ]
+        $timetable = [];
+        foreach ($days as $day) {
+            for ($period = 1; $period <= 6; $period++) {
+                $timetable[$day][$period] = null;
+            }
+        }
+
+        foreach ($schedules as $item) {
+            $timetable[$item->day_of_week][$item->period] = $item;
+        }
+
+        return view('dashboard.schedules', compact(
+            'viewType',
+            'teachers',
+            'classrooms',
+            'days',
+            'selectedTeacherId',
+            'selectedClassroom',
+            'timetable'
+        ));
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Student;
+use App\Models\Attendance;
+use App\Models\Announcement;
+use Illuminate\Http\Request;
+
+class SchoolDashboardController extends Controller
+{
+    public function index()
+    {
+        $today = now()->format('Y-m-d');
+
+        // คำนวณสถิติภาพรวม
+        $totalStudents = Student::count();
+        $absentToday = Attendance::whereDate('date', $today)
+            ->whereIn('status', ['ขาด', 'ขาดเรียน'])
+            ->count();
+
+        $totalAttendanceRecords = Attendance::count();
+        $presentRecords = Attendance::where('status', 'มาเรียน')->count();
+        $attendanceRate = $totalAttendanceRecords > 0 
+            ? round(($presentRecords / $totalAttendanceRecords) * 100, 1) 
+            : 100;
+
+        $stats = [
+            'total_students'  => $totalStudents,
+            'attendance_rate' => $attendanceRate,
+            'absent_today'    => $absentToday,
+        ];
+
+        // สรุปจำนวนนักเรียนแยกห้อง
+        $classrooms = Student::select('classroom', \DB::raw('count(*) as count'))
+            ->groupBy('classroom')
+            ->orderBy('classroom')
+            ->get();
+
+        // ดึงข่าวประกาศล่าสุด 5 รายการ (ปักหมุดขึ้นก่อน)
+        $latestAnnouncements = Announcement::orderByDesc('is_pinned')
+            ->latest()
+            ->take(5)
+            ->get();
+
+        return view('dashboard.index', compact('stats', 'classrooms', 'latestAnnouncements'));
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Controllers\Controller;
+use Illuminate\Http\Request;
+
+class StudentController extends Controller
+{
+    public function index()
+    {
+        $students = [
+            ['id' => '6511001', 'name' => 'สมชาย ใจดี', 'score' => 85],
+            ['id' => '6511002', 'name' => 'สมหญิง รักเรียน', 'score' => 72],
+            ['id' => '6511003', 'name' => 'อนุชา ตั้งใจ', 'score' => 45],
+            ['id' => '6511004', 'name' => 'พิมพ์ใจ ขยัน', 'score' => 91],
+            ['id' => '6511005', 'name' => 'วีระ สู้ชีวิต', 'score' => 60],
+            ['id' => '6511006', 'name' => 'ธนกฤต วิริยะ', 'score' => 85],
+            ['id' => '6511007', 'name' => 'ปิยพร เจริญสุข', 'score' => 72],
+            ['id' => '6511008', 'name' => 'กิตติศักดิ์ ชัยมงคล', 'score' => 45],
+            ['id' => '6511009', 'name' => 'อภิญญา มณีวรรณ', 'score' => 60],
+        ];
+
+        $total = 0;
+        foreach ($students as $student) {
+            $total += $student['score'];
+        }
+
+        $average = count($students) > 0 ? ($total / count($students)) : 0;
+
+        // ชี้ไปที่ resources/views/dashboard/index.blade.php
+        return view('dashboard.index', compact('students', 'average'));
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Student;
+use Illuminate\Http\Request;
+
+class StudentRegistryController extends Controller
+{
+    public function index(Request $request)
+    {
+        $students = Student::latest()->get();
+        $editStudent = $request->has('edit') ? Student::find($request->edit) : null;
+        return view('dashboard.index', compact('students', 'editStudent'));
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'code' => 'required|unique:students,code',
+            'name' => 'required|string|max:255',
+            'classroom' => 'required|string|max:50',
+            'phone' => 'nullable|string|max:20',
+            'status' => 'required|string',
+        ]);
+
+        Student::create($data);
+        return redirect()->route('students.index')->with('success', 'เพิ่มข้อมูลนักเรียนสำเร็จ');
+    }
+
+    public function update(Request $request, $id)
+    {
+        $student = Student::findOrFail($id);
+        $data = $request->validate([
+            'code' => 'required|unique:students,code,' . $student->id,
+            'name' => 'required|string|max:255',
+            'classroom' => 'required|string|max:50',
+            'phone' => 'nullable|string|max:20',
+            'status' => 'required|string',
+        ]);
+
+        $student->update($data);
+        return redirect()->route('students.index')->with('success', 'แก้ไขข้อมูลนักเรียนสำเร็จ');
+    }
+
+    public function destroy($id)
+    {
+        Student::findOrFail($id)->delete();
+        return redirect()->route('students.index')->with('success', 'ลบข้อมูลนักเรียนสำเร็จ');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Controllers\Controller;
+use App\Models\Teacher;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
+
+class TeacherController extends Controller
+{
+    public function index(Request $request)
+    {
+        $selectedLevel = $request->input('level', 'all');
+
+        $query = Teacher::query();
+        
+        // กรองเฉพาะเมื่อไม่ได้เลือก 'all'
+        if ($selectedLevel !== 'all' && !empty($selectedLevel)) {
+            $query->where('classroom_advisor', $selectedLevel);
+        }
+
+        $teachers = $query->latest()->get();
+
+        $editTeacher = null;
+        if ($request->filled('edit')) {
+            $editTeacher = Teacher::find($request->edit);
+        }
+
+        return view('dashboard.teachers', compact('teachers', 'selectedLevel', 'editTeacher'));
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'subject' => 'required|string|max:255',
+            'classroom_advisor' => 'required|string',
+            'phone' => 'nullable|string|max:20',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+        ]);
+
+        if ($request->hasFile('image')) {
+            $uploadPath = public_path('uploads/teachers');
+            if (!File::isDirectory($uploadPath)) {
+                File::makeDirectory($uploadPath, 0755, true, true);
+            }
+
+            $imageName = time() . '_' . uniqid() . '.' . $request->image->extension();
+            $request->image->move($uploadPath, $imageName);
+            $data['image'] = 'uploads/teachers/' . $imageName;
+        }
+
+        Teacher::create($data);
+
+        // ส่งกลับไปยังแท็บ 'all' หรือแท็บของห้องที่เพิ่งเพิ่ม เพื่อให้เห็นข้อมูลทันที
+        return redirect()->route('teachers.index', ['level' => 'all'])
+            ->with('success', 'เพิ่มข้อมูลคุณครูเรียบร้อยแล้ว');
+    }
+
+    public function update(Request $request, $id)
+    {
+        $teacher = Teacher::findOrFail($id);
+
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'subject' => 'required|string|max:255',
+            'classroom_advisor' => 'required|string',
+            'phone' => 'nullable|string|max:20',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg|max:100240',
+        ], [
+            'image.max' => 'ขนาดไฟล์รูปภาพต้องไม่เกิน 10 MB',
+            'image.image' => 'ไฟล์ที่อัปโหลดต้องเป็นรูปภาพเท่านั้น',
+            'image.mimes' => 'รองรับเฉพาะไฟล์ประเภท jpeg, png, jpg',
+        ]);
+
+        if ($request->hasFile('image')) {
+            if ($teacher->image && File::exists(public_path($teacher->image))) {
+                File::delete(public_path($teacher->image));
+            }
+
+            $uploadPath = public_path('uploads/teachers');
+            if (!File::isDirectory($uploadPath)) {
+                File::makeDirectory($uploadPath, 0755, true, true);
+            }
+
+            $imageName = time() . '_' . uniqid() . '.' . $request->image->extension();
+            $request->image->move($uploadPath, $imageName);
+            $data['image'] = 'uploads/teachers/' . $imageName;
+        }
+
+        $teacher->update($data);
+
+        return redirect()->route('teachers.index', ['level' => 'all'])
+            ->with('success', 'แก้ไขข้อมูลคุณครูเรียบร้อยแล้ว');
+    }
+
+    public function destroy($id)
+    {
+        $teacher = Teacher::findOrFail($id);
+
+        if ($teacher->image && File::exists(public_path($teacher->image))) {
+            File::delete(public_path($teacher->image));
+        }
+
+        $teacher->delete();
+
+        return redirect()->route('teachers.index')
+            ->with('success', 'ลบข้อมูลคุณครูเรียบร้อยแล้ว');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Teacher;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
+
+class TeacherController extends Controller
+{
+    public function index(Request $request)
+    {
+        $selectedLevel = $request->input('level', 'all');
+
+        $query = Teacher::query();
+        if ($selectedLevel !== 'all' && !empty($selectedLevel)) {
+            $query->where('classroom_advisor', $selectedLevel);
+        }
+
+        $teachers = $query->orderBy('classroom_advisor')->get();
+
+        $editTeacher = null;
+        if ($request->filled('edit')) {
+            $editTeacher = Teacher::find($request->edit);
+        }
+
+        return view('dashboard.teachers', compact('teachers', 'selectedLevel', 'editTeacher'));
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'subject' => 'required|string|max:255',
+            'classroom_advisor' => 'required|string',
+            'phone' => 'nullable|string|max:20',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+        ]);
+
+        if ($request->hasFile('image')) {
+            $imageName = time() . '_' . uniqid() . '.' . $request->image->extension();
+            $request->image->move(public_path('uploads/teachers'), $imageName);
+            $data['image'] = 'uploads/teachers/' . $imageName;
+        }
+
+        Teacher::create($data);
+
+        return redirect()->route('teachers.index')->with('success', 'เพิ่มข้อมูลคุณครูเรียบร้อยแล้ว');
+    }
+
+    public function update(Request $request, $id)
+    {
+        $teacher = Teacher::findOrFail($id);
+
+        $data = $request->validate([
+            'name' => 'required|string|max:255',
+            'subject' => 'required|string|max:255',
+            'classroom_advisor' => 'required|string',
+            'phone' => 'nullable|string|max:20',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg|max:2048',
+        ]);
+
+        if ($request->hasFile('image')) {
+            if ($teacher->image && File::exists(public_path($teacher->image))) {
+                File::delete(public_path($teacher->image));
+            }
+            $imageName = time() . '_' . uniqid() . '.' . $request->image->extension();
+            $request->image->move(public_path('uploads/teachers'), $imageName);
+            $data['image'] = 'uploads/teachers/' . $imageName;
+        }
+
+        $teacher->update($data);
+
+        return redirect()->route('teachers.index')->with('success', 'แก้ไขข้อมูลคุณครูเรียบร้อยแล้ว');
+    }
+
+    public function destroy($id)
+    {
+        $teacher = Teacher::findOrFail($id);
+
+        if ($teacher->image && File::exists(public_path($teacher->image))) {
+            File::delete(public_path($teacher->image));
+        }
+
+        $teacher->delete();
+
+        return redirect()->route('teachers.index')->with('success', 'ลบข้อมูลคุณครูเรียบร้อยแล้ว');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Controllers\Controller;
+use App\Models\Grade;
+use App\Models\Student;
+use Illuminate\Http\Request;
+
+class AcademicEvaluationController extends Controller
+{
+    public function index(Request $request)
+    {
+        // 1. ดึงรายชื่อห้องเรียนทั้งหมดที่มีนักเรียน
+        $classrooms = Student::select('classroom')
+            ->distinct()
+            ->orderBy('classroom')
+            ->pluck('classroom');
+
+        // 2. เลือกห้องเรียนปัจจุบัน (ถ้าไม่มี ให้เลือกห้องแรกอัตโนมัติ)
+        $selectedClassroom = $request->input('classroom', $classrooms->first());
+
+        // 3. ดึงนักเรียนเฉพาะในห้องเรียนที่เลือก พร้อมคะแนนทุกวิชา
+        $students = collect();
+        if ($selectedClassroom) {
+            $students = Student::with('grades')
+                ->where('classroom', $selectedClassroom)
+                ->orderBy('code')
+                ->get();
+        }
+
+        // 4. ตรวจสอบการเลือกนักเรียนคนใดคนหนึ่ง
+        $selectedStudent = null;
+        if ($request->filled('student_id')) {
+            $selectedStudent = Student::with('grades')->find($request->student_id);
+        }
+
+        // 5. ตรวจสอบการกดแก้ไขคะแนน
+        $editGrade = null;
+        if ($request->filled('edit_grade_id')) {
+            $editGrade = Grade::find($request->edit_grade_id);
+            if ($editGrade && !$selectedStudent) {
+                $selectedStudent = Student::with('grades')->find($editGrade->student_id);
+            }
+        }
+
+        return view('dashboard.index', compact('students', 'classrooms', 'selectedClassroom', 'selectedStudent', 'editGrade'));
+    }
+
+    private function calculateGrade($score)
+    {
+        $score = (float) $score;
+        if ($score >= 80) return '4.0';
+        elseif ($score >= 75) return '3.5';
+        elseif ($score >= 70) return '3.0';
+        elseif ($score >= 65) return '2.5';
+        elseif ($score >= 60) return '2.0';
+        elseif ($score >= 55) return '1.5';
+        elseif ($score >= 50) return '1.0';
+        else return '0.0';
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'student_id' => 'required|exists:students,id',
+            'subject'    => 'required|string|max:255',
+            'score'      => 'required|numeric|min:0|max:100',
+        ]);
+
+        $data['grade'] = $this->calculateGrade($data['score']);
+        Grade::create($data);
+
+        $student = Student::find($data['student_id']);
+
+        return redirect()->route('grades.index', [
+            'classroom'  => $student->classroom ?? null,
+            'student_id' => $data['student_id'],
+        ])->with('success', 'บันทึกเกรดวิชาใหม่เรียบร้อยแล้ว (เกรด: ' . $data['grade'] . ')');
+    }
+
+    public function update(Request $request, $id)
+    {
+        $gradeRecord = Grade::findOrFail($id);
+
+        $data = $request->validate([
+            'subject' => 'required|string|max:255',
+            'score'   => 'required|numeric|min:0|max:100',
+        ]);
+
+        $data['grade'] = $this->calculateGrade($data['score']);
+        $gradeRecord->update($data);
+
+        $student = Student::find($gradeRecord->student_id);
+
+        return redirect()->route('grades.index', [
+            'classroom'  => $student->classroom ?? null,
+            'student_id' => $gradeRecord->student_id,
+        ])->with('success', 'แก้ไขผลการเรียนเรียบร้อยแล้ว (เกรด: ' . $data['grade'] . ')');
+    }
+
+    public function destroy($id)
+    {
+        $grade = Grade::findOrFail($id);
+        $student = Student::find($grade->student_id);
+        $studentId = $grade->student_id;
+        $grade->delete();
+
+        return redirect()->route('grades.index', [
+            'classroom'  => $student->classroom ?? null,
+            'student_id' => $studentId,
+        ])->with('success', 'ลบรายการผลการเรียนสำเร็จ');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\Actor;
+use Illuminate\Support\Facades\Storage;
+
+class ActorController extends Controller
+{
+    public function index()
+    {
+        $actors = Actor::all();
+        return view('actor.index', compact('actors'));
+
+        //ดึงนักแสดงทุกคน พร้อมรายชื่อผลงานของแต่ละคน
+        $actor = Actor::with('movies')->get();
+
+        return view('actor.index', compact('actors'));
+    }
+
+
+    /**
+     * Show the form for creating a new resource.
+     */
+    public function create()
+    {
+        return view('actor.create');
+    }
+
+    /**
+     * Store a newly created resource in storage.
+     */
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required',
+            'address' => 'required',
+            'gender' => 'required',
+            'cost' => 'required|numeric',
+            'image' => 'required|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'belong' => 'required',
+        ]);
+
+        $requestData = $request->all();
+
+        $fileName = time() . '-' .
+            $request->file('image')->getClientOriginalName();
+
+        $path = $request->file('image')->storeAs(
+            'images',
+            $fileName,
+            'public'
+        );
+
+        $requestData['image'] = '/storage/' . $path;
+
+        Actor::create($requestData);
+
+        return redirect(route('actor.index'))
+            ->with('flash_message', 'Actor Added Successfully');
+    }
+
+    /**
+     * Display the specified resource.
+     */
+    public function show(string $id)
+    {
+        //
+    }
+
+    /**
+     * Show the form for editing the specified resource.
+     */
+    public function edit(Actor $actor)
+    {
+        return view('actor.edit', ['actor' => $actor]);
+    }
+
+    /**
+     * Update the specified resource in storage.
+     */
+    public function update(Request $request, Actor $actor)
+    {
+        $data = $request->validate([
+            'name' => 'required',
+            'address' => 'required',
+            'gender' => 'required',
+            'cost' => 'required|numeric',
+            'image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'belong' => 'required',
+        ]);
+
+        if ($request->hasFile('image')) {
+
+            // ลบรูปเก่า
+            $imageRemovePath = str_replace(
+                '/storage/images/',
+                '',
+                $request->input('oldimage')
+            );
+
+            Storage::disk('public')->delete(
+                'images/' . $imageRemovePath
+            );
+
+            // เพิ่มรูปใหม่
+            $requestData = $request->all();
+
+            $fileName = time() . '-' .
+                $request->file('image')->getClientOriginalName();
+
+            $path = $request->file('image')->storeAs(
+                'images',
+                $fileName,
+                'public'
+            );
+
+            $requestData['image'] = '/storage/' . $path;
+
+            $actor->update($requestData);
+
+        } else {
+
+            // ไม่เปลี่ยนรูป
+            $requestData = $request->all();
+
+            $actor->update($requestData);
+        }
+
+        return redirect('actor')
+            ->with('flash_message', 'Actor updated Successfully');
+    }
+
+    /**
+     * Remove the specified resource from storage.
+     */
+    public function destroy(Actor $actor)
+    {
+        if ($actor->image) {
+
+            $path = 'images/' . basename($actor->image);
+
+            if (Storage::disk('public')->exists($path)) {
+                Storage::disk('public')->delete($path);
+            }
+        }
+
+        $actor->delete();
+
+        return redirect(route('actor.index'))
+            ->with('success', 'Actor deleted Successfully');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Models\Announcement;
+use Illuminate\Http\Request;
+
+class AnnouncementController extends Controller
+{
+    public function index(Request $request)
+    {
+        $category = $request->input('category', 'all');
+
+        $query = Announcement::query();
+        if ($category !== 'all' && !empty($category)) {
+            $query->where('category', $category);
+        }
+
+        // เรียงลำดับ: ข่าวปักหมุดขึ้นก่อน ตามด้วยข่าวใหม่ล่าสุด
+        $announcements = $query->orderByDesc('is_pinned')
+            ->latest()
+            ->get();
+
+        $editAnnouncement = null;
+        if ($request->filled('edit')) {
+            $editAnnouncement = Announcement::find($request->edit);
+        }
+
+        return view('dashboard.announcements', compact('announcements', 'category', 'editAnnouncement'));
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'title'       => 'required|string|max:255',
+            'content'     => 'required|string',
+            'category'    => 'required|string',
+            'event_date'  => 'nullable|date',
+            'is_pinned'   => 'nullable|boolean',
+        ]);
+
+        $data['is_pinned'] = $request->has('is_pinned');
+        $data['author_name'] = auth()->user()->name ?? 'ฝ่ายประชาสัมพันธ์';
+
+        Announcement::create($data);
+
+        return redirect()->route('announcements.index')->with('success', 'โพสต์ข่าวประชาสัมพันธ์สำเร็จแล้ว');
+    }
+
+    public function update(Request $request, $id)
+    {
+        $announcement = Announcement::findOrFail($id);
+
+        $data = $request->validate([
+            'title'       => 'required|string|max:255',
+            'content'     => 'required|string',
+            'category'    => 'required|string',
+            'event_date'  => 'nullable|date',
+            'is_pinned'   => 'nullable|boolean',
+        ]);
+
+        $data['is_pinned'] = $request->has('is_pinned');
+
+        $announcement->update($data);
+
+        return redirect()->route('announcements.index')->with('success', 'แก้ไขข้อมูลข่าวประกาศสำเร็จ');
+    }
+
+    public function destroy($id)
+    {
+        $announcement = Announcement::findOrFail($id);
+        $announcement->delete();
+
+        return redirect()->route('announcements.index')->with('success', 'ลบข่าวประกาศเรียบร้อยแล้ว');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+
+class AuthController extends Controller
+{
+    // แสดงหน้าฟอร์มเข้าสู่ระบบ
+    public function showLoginForm()
+    {
+        if (Auth::check()) {
+            return redirect()->route('dashboard');
+        }
+        return view('auth.login');
+    }
+
+    // จัดการการเข้าสู่ระบบ
+    public function login(Request $request)
+    {
+        $credentials = $request->validate([
+            'email' => ['required', 'email'],
+            'password' => ['required'],
+        ], [
+            'email.required' => 'กรุณากรอกอีเมล',
+            'email.email' => 'รูปแบบอีเมลไม่ถูกต้อง',
+            'password.required' => 'กรุณากรอกรหัสผ่าน',
+        ]);
+
+        $remember = $request->boolean('remember');
+
+        if (Auth::attempt($credentials, $remember)) {
+            $request->session()->regenerate();
+            return redirect()->intended('/EDU')->with('success', 'เข้าสู่ระบบสำเร็จ ยินดีต้อนรับคุณครู');
+        }
+
+        return back()->withErrors([
+            'email' => 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
+        ])->onlyInput('email');
+    }
+
+    // ออกจากระบบ
+    public function logout(Request $request)
+    {
+        Auth::logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect()->route('login')->with('success', 'ออกจากระบบเรียบร้อยแล้ว');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Http\Controllers\Controller;
+use App\Models\Attendance;
+use App\Models\Student;
+use Illuminate\Http\Request;
+
+class ClassAttendanceController extends Controller
+{
+    public function index(Request $request)
+    {
+        $date = $request->input('date', now()->toDateString());
+
+        // 1. ดึงรายชื่อห้องเรียนทั้งหมดที่มีนักเรียนอยู่
+        $classrooms = Student::select('classroom')
+            ->distinct()
+            ->orderBy('classroom')
+            ->pluck('classroom');
+
+        // 2. เลือกห้องเรียนปัจจุบัน (ถ้าไม่มีการระบุ ให้เลือกห้องแรกอัตโนมัติ ไม่มีการแสดงรวมทั้งหมด)
+        $selectedClassroom = $request->input('classroom', $classrooms->first());
+
+        // 3. ดึงนักเรียนเฉพาะห้องเรียนที่เลือกเท่านั้น
+        $students = collect();
+        if ($selectedClassroom) {
+            $students = Student::where('classroom', $selectedClassroom)
+                ->orderBy('code')
+                ->get();
+        }
+
+        // 4. ดึงข้อมูลการเช็กชื่อของวันและห้องนั้นๆ
+        $attendances = Attendance::where('date', $date)->get()->keyBy('student_id');
+
+        $records = $students->map(function ($student) use ($attendances) {
+            $att = $attendances->get($student->id);
+            return [
+                'attendance_id' => $att ? $att->id : null,
+                'student_id'    => $student->id,
+                'code'          => $student->code ?? '-',
+                'name'          => $student->name ?? '-',
+                'classroom'     => $student->classroom ?? '-',
+                'status'        => $att ? $att->status : 'มาเรียน',
+                'remark'        => $att ? $att->remark : '',
+            ];
+        });
+
+        // สรุปยอด มา/สาย/ขาด/ลา ประจำห้องนั้น
+        $roomSummary = [
+            'total'   => $records->count(),
+            'present' => $records->where('status', 'มาเรียน')->count(),
+            'late'    => $records->where('status', 'สาย')->count(),
+            'absent'  => $records->filter(fn($r) => in_array($r['status'], ['ขาด', 'ขาดเรียน']))->count(),
+            'leave'   => $records->where('status', 'ลา')->count(),
+        ];
+
+        return view('dashboard.index', compact('records', 'classrooms', 'selectedClassroom', 'date', 'roomSummary'));
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'date'               => 'required|date',
+            'attendances'        => 'required|array',
+            'selected_classroom' => 'required|string',
+        ]);
+
+        $date = $request->input('date');
+
+        foreach ($request->input('attendances') as $studentId => $item) {
+            Attendance::updateOrCreate(
+                [
+                    'student_id' => $studentId,
+                    'date'       => $date,
+                ],
+                [
+                    'status' => $item['status'] ?? 'มาเรียน',
+                    'remark' => $item['remark'] ?? null,
+                ]
+            );
+        }
+
+        return redirect()->route('attendance.index', [
+            'date'      => $date,
+            'classroom' => $request->input('selected_classroom'),
+        ])->with('success', 'บันทึกการเช็กชื่อห้อง ' . $request->input('selected_classroom') . ' เรียบร้อยแล้ว');
+    }
+
+    public function destroy($id)
+    {
+        $attendance = Attendance::findOrFail($id);
+        $date = $attendance->date;
+        $classroom = $attendance->student->classroom ?? null;
+        $attendance->delete();
+
+        return redirect()->route('attendance.index', ['date' => $date, 'classroom' => $classroom])
+            ->with('success', 'ลบประวัติการเข้าเรียนเรียบร้อยแล้ว');
+    }
+}
+<?php
+
+namespace App\Http\Controllers;
+
+abstract class Controller
+{
+    //
+}
+
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\StudentController;
+use App\Http\Controllers\GradeController;
+use App\Http\Controllers\AttendanceController;
+
+Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
+
+Route::resource('students', StudentController::class);
+Route::resource('grades', GradeController::class);
+Route::resource('attendance', AttendanceController::class);
+<?php
+
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
+use App\Models\Demo;
+
+class DemoController extends Controller
+{
+    public function index()
+    {
+        $demos = Demo::all();
+        return view('demo.index',compact('demos'));
+    }
+}
