@@ -1,0 +1,74 @@
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use App\Models\Teacher;
+use App\Models\Schedule;
+
+class ScheduleAutoAssignSeeder extends Seeder
+{
+    public function run(): void
+    {
+        Schedule::truncate(); // ล้างข้อมูลตารางเดิมก่อนจัดใหม่
+
+        $teachers = Teacher::all();
+        if ($teachers->isEmpty()) {
+            return;
+        }
+
+        $classrooms = ['ม.1', 'ม.2', 'ม.3', 'ม.4', 'ม.5', 'ม.6'];
+        $days = ['จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์'];
+        $timeSlots = [
+            1 => '08:30 - 09:30',
+            2 => '09:30 - 10:30',
+            3 => '10:30 - 11:30',
+            4 => '12:30 - 13:30',
+            5 => '13:30 - 14:30',
+            6 => '14:30 - 15:30',
+        ];
+
+        // แจกจ่ายคาบสอนให้คุณครูแต่ละคนครบทุกชั้นปี (ม.1 - ม.6) ในวิชาของตนเอง
+        foreach ($teachers as $tIndex => $teacher) {
+            foreach ($classrooms as $cIndex => $classroom) {
+                // คำนวณวันและคาบ เพื่อกระจายไม่ให้คาบซ้ำกัน
+                $dayIndex = ($tIndex + $cIndex) % 5;
+                $period = (($tIndex * 2 + $cIndex) % 6) + 1;
+
+                Schedule::create([
+                    'teacher_id'  => $teacher->id,
+                    'classroom'   => $classroom,
+                    'subject'     => $teacher->subject,
+                    'day_of_week' => $days[$dayIndex],
+                    'period'      => $period,
+                    'time_slot'   => $timeSlots[$period],
+                ]);
+            }
+        }
+    }
+}
+<?php
+
+namespace Database\Seeders;
+
+use App\Models\User;
+use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use Illuminate\Database\Seeder;
+
+class DatabaseSeeder extends Seeder
+{
+    use WithoutModelEvents;
+
+    /**
+     * Seed the application's database.
+     */
+    public function run(): void
+    {
+        // User::factory(10)->create();
+
+        User::factory()->create([
+            'name' => 'Test User',
+            'email' => 'test@example.com',
+        ]);
+    }
+}
